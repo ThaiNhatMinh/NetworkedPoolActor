@@ -148,6 +148,7 @@ AActor* AReplicateProxyActor::SpawnActor(const FPoolActorSpawnParameters& SpawnP
 			Found->SetActorEnableCollision(true);
 		Found->SetNetDormancy(ENetDormancy::DORM_Awake);
 		Found->InitializeComponents();
+		Found->FlushNetDormancy();
 		SpawnParameter.PreBeginPlayDelegate.ExecuteIfBound(Found);
 		Found->DispatchBeginPlay();
 		if (FoundEntry)
@@ -155,6 +156,10 @@ AActor* AReplicateProxyActor::SpawnActor(const FPoolActorSpawnParameters& SpawnP
 			FoundEntry->SetComponentTick(Found, true);
 		}
 		Found->ForceNetUpdate();
+		if (!Found->GetRootComponent()->GetIsReplicated() && !Found->IsReplicatingMovement())
+		{
+			Found->SetReplicateMovement(false);
+		}
 	}
 	return Found;
 }
@@ -337,6 +342,7 @@ void FOtterPoolActorEntry::PostReplicatedChange(const struct FOtterPoolActorArra
 #if !UE_BUILD_SHIPPING
 				CacheActor->MarkComponentsRenderStateDirty();
 #endif
+				//CacheActor->InitializeComponents();
 				CacheActor->DispatchBeginPlay();
 				SetComponentTick(CacheActor, true);
 			}
