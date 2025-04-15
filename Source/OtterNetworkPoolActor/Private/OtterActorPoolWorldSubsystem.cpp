@@ -70,7 +70,8 @@ AReplicateProxyActor::AReplicateProxyActor()
 {
 	bReplicates = true;
 	bAlwaysRelevant = true;
-	SetNetUpdateFrequency(10);
+	SetNetUpdateFrequency(1000.0f);
+	NetPriority = 400;
 }
 
 void AReplicateProxyActor::EndPlay(EEndPlayReason::Type Reason)
@@ -83,9 +84,9 @@ void AReplicateProxyActor::EndPlay(EEndPlayReason::Type Reason)
 	{
 		for (auto CacheActor : ActorEntry.CacheActors)
 		{
-			if (!ensure(IsValid(CacheActor)))
+			if (!ensure(IsValid(CacheActor.Actor)))
 				continue;
-			CacheActor->Destroy();
+			CacheActor.Actor->Destroy();
 		}
 	}
 	ActorPools.Items.Empty();
@@ -96,7 +97,7 @@ AActor* AReplicateProxyActor::SpawnActor(const FPoolActorSpawnParameters& SpawnP
 	TRACE_CPUPROFILER_EVENT_SCOPE(AReplicateProxyActor::SpawnActor);
 	if (!SpawnParameter.ActorClass)
 		return nullptr;
-	AActor* Found = nullptr;
+	FOtterActorPoolData* Found = nullptr;
 	FOtterPoolActorEntry* FoundEntry = nullptr;
 	for (auto& ActorEntry : ActorPools.Items)
 	{
@@ -104,13 +105,13 @@ AActor* AReplicateProxyActor::SpawnActor(const FPoolActorSpawnParameters& SpawnP
 		{
 			// Find unused actor
 			Found = ActorEntry.FindUnusedActor();
-			if (!IsValid(Found))
+			if (!Found)
 			{
 				if (ActorEntry.IsFull())
 					continue;
 				Found = ActorEntry.SpawnActor(GetWorld(), SpawnParameter);
-				if (IsValid(Found))
-					return Found;
+				if (Found)
+					return Found->Actor;
 			}
 			FoundEntry = &ActorEntry;
 			ActorPools.MarkItemDirty(ActorEntry);
@@ -118,7 +119,7 @@ AActor* AReplicateProxyActor::SpawnActor(const FPoolActorSpawnParameters& SpawnP
 		}
 	}
 
-	if (!IsValid(Found))
+	if (!Found)
 	{
 		FOtterPoolActorEntry& Entry = ActorPools.Items.AddDefaulted_GetRef();
 		Entry.UsingBit = 0;
@@ -126,42 +127,38 @@ AActor* AReplicateProxyActor::SpawnActor(const FPoolActorSpawnParameters& SpawnP
 		Entry.ActorClass = SpawnParameter.ActorClass;
 		Entry.bStartWithTickEnable = SpawnParameter.ActorClass.GetDefaultObject()->PrimaryActorTick.bStartWithTickEnabled;
 		Found = Entry.SpawnActor(GetWorld(), SpawnParameter, true);
-		if (!IsValid(Found))
+		if (!Found)
 			return nullptr;
 		ActorPools.MarkItemDirty(Entry);
 	}
 	else
 	{
-		Found->SetActorTransform(SpawnParameter.Transform, false, nullptr);
-		Found->SetInstigator(SpawnParameter.Instigator);
-		Found->SetOwner(SpawnParameter.Owner);
-		if (!Found->GetRootComponent()->GetIsReplicated() && !Found->IsReplicatingMovement())
-		{
-			Found->SetReplicateMovement(true);
-		}
+		auto Actor = Found->Actor;
+		Actor->SetActorTransform(SpawnParameter.Transform, false, nullptr);
+		Actor->SetInstigator(SpawnParameter.Instigator);
+		Actor->SetOwner(SpawnParameter.Owner);
+
 		if (FoundEntry)
 		{
-			Found->SetActorTickEnabled(FoundEntry->bStartWithTickEnable);
+			Actor->SetActorTickEnabled(FoundEntry->bStartWithTickEnable);
+			Found->SpawnLocation = SpawnParameter.Transform.GetLocation();
+			Found->SpawnRotation = SpawnParameter.Transform.GetRotation();
+			Found->SpawnScale = SpawnParameter.Transform.GetScale3D();
 		}
-		Found->SetActorHiddenInGame(false);
+		Actor->SetActorHiddenInGame(false);
 		if (!SpawnParameter.bDisableCollisionOnSpawn)
-			Found->SetActorEnableCollision(true);
-		Found->SetNetDormancy(ENetDormancy::DORM_Awake);
-		Found->InitializeComponents();
-		Found->FlushNetDormancy();
-		SpawnParameter.PreBeginPlayDelegate.ExecuteIfBound(Found);
-		Found->DispatchBeginPlay();
+			Actor->SetActorEnableCollision(true);
+		Actor->SetNetDormancy(ENetDormancy::DORM_Awake);
+		Actor->InitializeComponents();
+		SpawnParameter.PreBeginPlayDelegate.ExecuteIfBound(Actor);
+		Actor->DispatchBeginPlay();
 		if (FoundEntry)
 		{
-			FoundEntry->SetComponentTick(Found, true);
+			FoundEntry->SetComponentTick(Actor, true);
 		}
-		Found->ForceNetUpdate();
-		if (!Found->GetRootComponent()->GetIsReplicated() && !Found->IsReplicatingMovement())
-		{
-			Found->SetReplicateMovement(false);
-		}
+		Actor->ForceNetUpdate();
 	}
-	return Found;
+	return Found->Actor;
 }
 
 AActor * AReplicateProxyActor::SpawnActor(TSubclassOf<AActor> ActorClass, FTransform const & Transform, AActor * OwnerActor, APawn * InstigatorActor)
@@ -197,7 +194,7 @@ bool FOtterPoolActorEntry::IsFull() const
 	return CacheActors.Num() >= MAX_ELEMENT;
 }
 
-AActor* FOtterPoolActorEntry::FindUnusedActor()
+FOtterActorPoolData* FOtterPoolActorEntry::FindUnusedActor()
 {
 	if (CacheActors.IsEmpty())
 		return nullptr;
@@ -215,15 +212,15 @@ AActor* FOtterPoolActorEntry::FindUnusedActor()
 	UsingBit = bitset.to_ullong();
 
 #if !UE_BUILD_SHIPPING
-	if (!IsValid(CacheActors[Index]))
+	if (!IsValid(CacheActors[Index].Actor))
 	{
 		UE_LOG(LogTemp, Error, TEXT("Pool: Index=%d has invalid actor"), Index);
 	}
 #endif
-	return CacheActors[Index];
+	return &CacheActors[Index];
 }
 
-AActor* FOtterPoolActorEntry::SpawnActor(UWorld* InWorld, const FPoolActorSpawnParameters& SpawnParameter, bool bUsedNow)
+FOtterActorPoolData* FOtterPoolActorEntry::SpawnActor(UWorld* InWorld, const FPoolActorSpawnParameters& SpawnParameter, bool bUsedNow)
 {
 	UE_LOG(LogTemp, Verbose, TEXT("Pool: SpawnActor: count %d actor for class %s"), CacheActors.Num(), *GetNameSafe(SpawnParameter.ActorClass));
 	if (CacheActors.Num() >= MAX_ELEMENT)
@@ -252,12 +249,13 @@ AActor* FOtterPoolActorEntry::SpawnActor(UWorld* InWorld, const FPoolActorSpawnP
 		if (PoolInterface->ShouldCollectProperty())
 			PoolInterface->CollectProperty(Found, SpawnParameter.RootActorClass);
 	}
-	CacheActors.Add(Found);
+	auto& ActorData = CacheActors.AddDefaulted_GetRef();
+	ActorData.Actor = Found;
 	if (bUsedNow)
 	{
 		SetSlot(CacheActors.Num() - 1, true);
 	}
-	return Found;
+	return &ActorData;
 }
 
 void FOtterPoolActorEntry::SetSlot(int Index, bool bUsed)
@@ -271,7 +269,7 @@ bool FOtterPoolActorEntry::PushToPool(AActor* InActor)
 {
 	for (auto Index = 0; Index < CacheActors.Num(); Index++)
 	{
-		if (CacheActors[Index] == InActor)
+		if (CacheActors[Index].Actor == InActor)
 		{
 			SetSlot(Index, false);
 			OnActorEndPlay(InActor);
@@ -332,17 +330,18 @@ void FOtterPoolActorEntry::PostReplicatedChange(const struct FOtterPoolActorArra
 		{
 			if (!changedbitset.test(Index))
 				continue;
-			auto CacheActor = CacheActors[Index];
+			auto CacheActor = CacheActors[Index].Actor;
 			if (!ensure(IsValid(CacheActor)))
 				continue;
 			if (newbitset.test(Index))
 			{
+				CacheActor->SetActorTransform(FTransform(CacheActors[Index].SpawnRotation, CacheActors[Index].SpawnLocation, CacheActors[Index].SpawnScale));
 				CacheActor->SetActorTickEnabled(bStartWithTickEnable);
 				CacheActor->SetActorEnableCollision(true);
 #if !UE_BUILD_SHIPPING
 				CacheActor->MarkComponentsRenderStateDirty();
 #endif
-				//CacheActor->InitializeComponents();
+				CacheActor->SetActorHiddenInGame(false);
 				CacheActor->DispatchBeginPlay();
 				SetComponentTick(CacheActor, true);
 			}
@@ -365,11 +364,11 @@ void FOtterPoolActorEntry::PostReplicatedAdd(const struct FOtterPoolActorArray& 
 	}
 	CacheClientUsingBit = UsingBit;
 	NumActor = CacheActors.Num();
-	for (auto Actor : CacheActors)
+	for (auto& ActorData : CacheActors)
 	{
-		auto PoolInterface = Cast<IOtterPoolActorInterface>(Actor);
+		auto PoolInterface = Cast<IOtterPoolActorInterface>(ActorData.Actor);
 		if (PoolInterface && PoolInterface->ShouldCollectProperty())
-			PoolInterface->CollectProperty(Actor, AActor::StaticClass());
+			PoolInterface->CollectProperty(ActorData.Actor, AActor::StaticClass());
 	}
 }
 

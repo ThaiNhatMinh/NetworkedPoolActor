@@ -23,26 +23,43 @@ struct OTTERNETWORKPOOLACTOR_API FPoolActorSpawnParameters : public FActorSpawnP
 };
 
 USTRUCT()
+struct FOtterActorPoolData
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	AActor* Actor;
+
+	UPROPERTY()
+	FVector SpawnLocation = FVector::ZeroVector;
+	UPROPERTY()
+	FQuat SpawnRotation = FQuat::Identity;
+	UPROPERTY()
+	FVector SpawnScale = FVector::OneVector;
+};
+
+USTRUCT()
 struct FOtterPoolActorEntry : public FFastArraySerializerItem
 {
 	GENERATED_BODY()
 
 	UPROPERTY()
-	TArray<AActor*> CacheActors;
+	TArray<FOtterActorPoolData> CacheActors;
 
 	UPROPERTY()
 	TSubclassOf<AActor> ActorClass;
 
 	UPROPERTY()
 	uint64 UsingBit = 0; // 64 bit, max 64 actor support
+
 	uint64 CacheClientUsingBit = 0;
 	uint8 NumActor;
 
 	bool bStartWithTickEnable = false;
 
 	bool IsFull() const;
-	AActor* FindUnusedActor();
-	AActor* SpawnActor(UWorld* InWorld, const FPoolActorSpawnParameters& SpawnParameter, bool bUsedNow = true);
+	FOtterActorPoolData* FindUnusedActor();
+	FOtterActorPoolData* SpawnActor(UWorld* InWorld, const FPoolActorSpawnParameters& SpawnParameter, bool bUsedNow = true);
 	bool PushToPool(AActor* InActor);
 	void SetSlot(int Index, bool bUsed);
 	void OnActorEndPlay(AActor* InActor);
