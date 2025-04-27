@@ -292,6 +292,8 @@ void FOtterPoolActorEntry::OnActorEndPlay(AActor* InActor)
 	InActor->MarkComponentsRenderStateDirty();
 #endif
 	InActor->GetWorldTimerManager().ClearAllTimersForObject(InActor);
+	InActor->GetWorld()->GetLatentActionManager().RemoveActionsForObject(InActor);
+
 	if (auto PoolInterface = Cast<IOtterPoolActorInterface>(InActor))
 	{
 		PoolInterface->ResetProperty(InActor);
