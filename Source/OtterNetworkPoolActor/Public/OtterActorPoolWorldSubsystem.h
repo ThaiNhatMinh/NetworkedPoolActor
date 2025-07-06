@@ -28,7 +28,7 @@ struct FOtterActorPoolData
 	GENERATED_BODY()
 
 	UPROPERTY()
-	AActor* Actor;
+	AActor* Actor = nullptr;
 
 	UPROPERTY()
 	FVector SpawnLocation = FVector::ZeroVector;
