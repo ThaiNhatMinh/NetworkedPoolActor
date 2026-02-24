@@ -344,6 +344,7 @@ void FOtterPoolActorEntry::PostReplicatedChange(const struct FOtterPoolActorArra
 				CacheActor->MarkComponentsRenderStateDirty();
 #endif
 				CacheActor->SetActorHiddenInGame(false);
+				CacheActor->InitializeComponents();
 				CacheActor->DispatchBeginPlay();
 				SetComponentTick(CacheActor, true);
 			}
