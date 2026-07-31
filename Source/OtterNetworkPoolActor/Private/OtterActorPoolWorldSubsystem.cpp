@@ -23,6 +23,7 @@ bool UOtterPoolActorWorldSubsystem::ShouldCreateSubsystem(UObject * Outer) const
 
 void UOtterPoolActorWorldSubsystem::OnWorldBeginPlay(UWorld & InWorld)
 {
+	Super::OnWorldBeginPlay(InWorld);
 	auto GameMode = InWorld.GetAuthGameMode();
 	if (!IsValid(GameMode))
 		return;
